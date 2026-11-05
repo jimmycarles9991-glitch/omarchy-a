@@ -71,7 +71,7 @@ jobs:
   artwork:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: test
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Reuse unchanged successful outputs
@@ -90,7 +90,10 @@ jobs:
         if: inputs.reuse_run_id == ''
         with:
           python-version: '3.14'
-      - run: brew install imagemagick librsvg
+      - run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick librsvg2-bin
+          # Ubuntu ships ImageMagick 6 (convert); the artwork scripts call magick
+          command -v magick >/dev/null || sudo ln -s "$(command -v convert)" /usr/local/bin/magick
         if: inputs.reuse_run_id == ''
       - name: Generate the boot artwork, data for orchard's m1n1
         if: inputs.reuse_run_id == ''
