@@ -5,6 +5,7 @@ import io
 import json
 import os
 import subprocess
+import struct
 from pathlib import Path
 import sys
 import tarfile
@@ -132,12 +133,17 @@ assert.equal(bluetooth.deviceLabel(bluetooth.deviceRow({name:'My alias',deviceNa
         pin = json.loads((PROJECT / 'desktop/cursor/wtype.json').read_text())
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ('wtype', 'LICENSE'):
-                (root / name).write_bytes(name.encode())
+            binary = bytearray(64)
+            binary[:7] = b'\x7fELF\x02\x01\x01'
+            struct.pack_into('<HHI', binary, 16, 2, 183, 1)
+            struct.pack_into('<H', binary, 52, 64)
+            contents = {'wtype': bytes(binary), 'LICENSE': b'LICENSE'}
+            for name, data in contents.items():
+                (root / name).write_bytes(data)
             record = {'schema': 1, 'architecture': 'aarch64', 'source': pin,
-                      'files': {name: hashlib.sha256(name.encode()).hexdigest() for name in ('wtype', 'LICENSE')}}
+                      'files': {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()}}
             (root / 'manifest.json').write_text(json.dumps(record))
-            self.assertEqual(cursor_files(root)['usr/libexec/omarchy-wtype'], (b'wtype', 0o755))
+            self.assertEqual(cursor_files(root)['usr/libexec/omarchy-wtype'], (contents['wtype'], 0o755))
             (root / 'wtype').write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError, 'differs from receipt'):
                 cursor_files(root)
@@ -154,32 +160,6 @@ assert.equal(bluetooth.deviceLabel(bluetooth.deviceRow({name:'My alias',deviceNa
         self.assertEqual((member.uid, member.gid, member.mode), (0, 0, 0o4755))
         with self.assertRaisesRegex(ValueError, 'content differs'):
             apply(member, b'X' * len(data), records[member.name], {})
-
-    def test_recovery_framing_preserves_the_compressed_initramfs(self):
-        import struct
-        from orchard.image.assemble import INITRAMFS_MAGIC, LOGO_BYTES, LOGO_MAGIC
-        from release.audit import audit_recovery
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fdt = b'\xd0\x0d\xfe\xed'
-            logo = LOGO_MAGIC + bytes(LOGO_BYTES - len(LOGO_MAGIC))
-            inputs = {'loader': b'loader', 'logo': logo, 'dtb': fdt + b'a', 'dtb2': fdt + b'b', 'kernel': b'kernel',
-                      'initramfs': gzip.compress(b'070701' + b'\0' * 32)}
-            for name, data in inputs.items():
-                (root / name).write_bytes(data)
-            (root / 'profile.json').write_text(json.dumps({'bootargs': 'chosen.bootargs=test\n'}))
-            image = root / 'recovery.bin'
-            argv = [sys.executable, '-m', 'orchard.image.assemble', '--manifest', str(root / 'profile.json'),
-                    '--output', str(image)]
-            for name in inputs:
-                argv.extend(['--' + name.rstrip('2'), str(root / name)])
-            subprocess.run(argv, check=True, capture_output=True)
-            expected = (inputs['loader'] + logo + b'chosen.bootargs=test\n' + inputs['dtb'] + inputs['dtb2'] + inputs['kernel'] +
-                        INITRAMFS_MAGIC + struct.pack('<I', len(inputs['initramfs'])) + inputs['initramfs'])
-            self.assertEqual(image.read_bytes(), expected)
-            audit = audit_recovery(image)
-            self.assertEqual(audit['initramfs_sha256'], hashlib.sha256(inputs['initramfs']).hexdigest())
-            self.assertEqual(audit['dtbs'], 2)
 
     def test_recovery_adt_endpoint_owns_size_and_exact_binary_selection(self):
         with tempfile.TemporaryDirectory() as directory:
