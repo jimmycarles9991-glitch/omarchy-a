@@ -62,6 +62,11 @@ class MenuShutdownTests(unittest.TestCase):
                              ('lock', 'omarchy-system-lock')):
             self.assertEqual(menu_action(name), action)
 
+    def test_reboot_says_it_leaves_linux(self):
+        # A reboot does not come back into Linux; one entry, no other system's name.
+        entries = re.findall(r'"system\.reboot[^"]*":\s*(\{[^\n]+\})', MENU.read_text())
+        self.assertEqual([json.loads(e)['label'] for e in entries], ['Reboot (leaves Linux)'])
+
     def test_commands_are_shipped(self):
         for name in ('omarchy-system', 'omarchy-system-lock', 'omarchy-system-wake', 'omarchy-osd',
                      'omarchy-i18n', 'omarchy-state', 'omarchy-notification-send',
@@ -172,7 +177,7 @@ class WindowCloseAllTests(unittest.TestCase):
 class PowerOwnerTests(unittest.TestCase):
     def test_lock_and_wake_only_feed_omarchy_powerd(self):
         # docs/power-and-lock.md: one owner of the lock, the screen and sleep.
-        for name, verb in (('omarchy-system-lock', 'idle'), ('omarchy-system-wake', 'wake')):
+        for name, verb in (('omarchy-system-lock', 'lock'), ('omarchy-system-wake', 'wake')):
             lines = (BIN / name).read_text().splitlines()
             code = [line for line in lines if line and not line.startswith('#')]
             self.assertEqual(code, ['exec /usr/libexec/omarchy-powerctl %s >/dev/null' % verb])
