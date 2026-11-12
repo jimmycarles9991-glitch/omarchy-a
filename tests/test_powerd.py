@@ -4,12 +4,14 @@ import importlib.util
 import json
 from pathlib import Path
 import os
+import pwd
 import socket
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
@@ -347,6 +349,19 @@ class Buttons(unittest.TestCase):
         buttons.edge('home', True, 5.0, True)
         self.assertFalse(buttons.home_in_combo)
 
+    def test_user_commands_look_groups_up_in_the_child(self):
+        # os.getgrouplist would hold the interpreter lock through nss-systemd,
+        # which stalls until systemd has finished a sleep.
+        user = pwd.struct_passwd(('tablet', 'x', 1000, 1000, '', '/home/tablet', '/bin/bash'))
+        with mock.patch.object(powerd, 'command') as command, \
+                mock.patch.object(powerd.os, 'getgrouplist', side_effect=AssertionError('NSS in powerd')):
+            powerd.as_user(user, 'omarchy-shell', 'lock', 'woke')
+        argv, options = command.call_args
+        self.assertEqual(argv[:5], ('setpriv', '--reuid=1000', '--regid=1000', '--init-groups', '--'))
+        self.assertEqual(argv[5:], ('omarchy-shell', 'lock', 'woke'))
+        self.assertNotIn('extra_groups', options)
+        self.assertEqual(options['env']['HOME'], '/home/tablet')
+
     def test_a_home_press_that_wakes_the_screen_opens_nothing(self):
         buttons = powerd.Buttons()
         self.assertEqual(buttons.edge('home', True, 1.0, False), 'home')
@@ -404,6 +419,13 @@ class Integration(unittest.TestCase):
         greeter = ET.fromstring((PROJECT / 'desktop/greeter/labwc/rc.xml').read_bytes())
         for key in ('XF86PowerOff', 'XF86HomePage'):
             self.assertEqual(greeter.findall(f"./keyboard/keybind[@key='{key}']"), [])
+
+    def test_a_held_key_on_the_lock_screen_wakes_once(self):
+        view = (PROJECT / 'desktop/shell/shell/plugins/lock/LockView.qml').read_text()
+        keys = view[view.index('Keys.onPressed'):]
+        keys = keys[:keys.index('\n        }\n')]
+        self.assertIn('if (!event.isAutoRepeat) root.wakeRequested()', keys)
+        self.assertEqual(keys.count('wakeRequested()'), 1)
 
     def test_every_way_to_dark_uses_the_same_client_and_the_decided_times(self):
         client = '/usr/libexec/omarchy-powerctl'

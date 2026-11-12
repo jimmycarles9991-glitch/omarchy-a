@@ -11,15 +11,24 @@ releasing, rename that section to the version (`## [0.3.0] - YYYY-MM-DD`). The
 release workflow uses that section as the GitHub release notes and fails if it
 is missing or empty.
 
-## [Unreleased]
+## [0.3.0] - 2026-11-12
 
 ### Highlights
 
-The screen rotates with the iPad, and landscape no longer lags. Volume keys
-work, with an on-screen display.
+Full GPU acceleration on the iPad 6 and 7: the desktop and apps run on the
+GPU, and Firefox plays YouTube with hardware video. A proper tablet experience,
+with an app switcher that shows every open window, Omactivity for what's
+running, and Files with a touch mode. Installing takes under two minutes
+instead of four. More supported devices, the screen rotates with the iPad, and
+login and the lock screen flow smoothly.
 
 ### Desktop
 
+- On the iPad 6 and 7 the desktop and apps run on the GPU, and Firefox plays
+  YouTube with hardware video decoding.
+- Files: Omarchy's file manager, now with a touch mode, replaces Dolphin on
+  64-bit boards.
+- Qt apps (Files, Omactivity, Omacalc) draw on the GPU on the GPU desktop.
 - App switcher: four fingers up, Home pressed twice or Super+Tab show every
   open window side by side, minimised ones included. Tap one to bring it back,
   flick it up to close it.
@@ -46,9 +55,9 @@ work, with an on-screen display.
   it, in well under a second, and Home wakes it too.
 - Home and Power together take a screenshot, with a flash; it goes to
   ~/Pictures/Screenshots.
-- Omactivity, a touch task manager: in the bar, the menu and Super+Shift+T.
+- Omactivity, a touch task manager: in the menu and with Super+Shift+T.
 - A long press on a saved Wi-Fi network offers Forget and Change passphrase.
-- Wi-Fi remembers its country, so 5 GHz networks connect after a boot.
+- Wi-Fi connects to 5 GHz networks right after a boot.
 - The speakers are called "Speakers"; tapping a bar icon no longer flashes the
   Stay Awake mug; the first boot starts at full brightness.
 - Omacalc comes from Omarchy's package repository and updates with the system.
