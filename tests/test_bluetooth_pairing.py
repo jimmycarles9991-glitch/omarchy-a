@@ -106,7 +106,7 @@ class PairingPackagingTests(unittest.TestCase):
             output.mkdir()
             names = ('labwc', 'LICENSE', 'source.tar.gz', '0001-cancel-super-tap-on-pointer.patch',
                      '0002-bottom-edge-swipe.patch', '0003-session-transitions.patch',
-                     '0004-overview.patch', 'packages.lock', 'compiler.txt', 'version.txt')
+                     '0004-overview.patch', '0005-title-double-tap.patch', 'packages.lock', 'compiler.txt', 'version.txt')
             digests = {}
             for name in names:
                 data = ('fixture ' + name).encode()
@@ -116,6 +116,7 @@ class PairingPackagingTests(unittest.TestCase):
                    'patch_sha256': digests['0001-cancel-super-tap-on-pointer.patch'],
                    'edge_patch_sha256': digests['0002-bottom-edge-swipe.patch'],
                    'transitions_patch_sha256': digests['0003-session-transitions.patch'],
+                   'title_tap_patch_sha256': digests['0005-title-double-tap.patch'],
                    'overview_patch_sha256': digests['0004-overview.patch']}
             source = root / 'desktop/labwc'
             source.mkdir(parents=True)
@@ -159,3 +160,10 @@ class PairingPackagingTests(unittest.TestCase):
                     public_root.bluetooth_files(output)
             with self.assertRaises(ValueError):
                 script['prepare'](b'wrong', pin, root / 'wrong')
+
+
+class Reconnect(unittest.TestCase):
+    def test_bonded_devices_can_reconnect_quickly(self):
+        conf = (PROJECT / 'system/overlay/etc/bluetooth/main.conf').read_text()
+        self.assertIn('FastConnectable = true', conf)
+        self.assertIn('AutoEnable = true', conf)

@@ -262,6 +262,21 @@ STATS = Path('/sys/power/suspend_stats')
 WAKEUP_COUNT = Path('/sys/power/wakeup_count')
 BACKLIGHTS = Path('/sys/class/backlight')
 BRIGHTNESS = Path('/var/lib/omarchy-powerd/brightness')
+USB_DEVICES = Path('/sys/bus/usb/devices')
+
+
+def usb_new_devices(allowed):
+    """Whether newly plugged USB devices are enabled, on every USB host.
+
+    Off while the screen is locked: a stick or a USB keyboard plugged into a
+    locked tablet stays off, also after the unlock, until it is plugged in
+    again unlocked. Devices already enabled stay as they are.
+    """
+    for switch in sorted(USB_DEVICES.glob('usb*/authorized_default')):
+        try:
+            switch.write_text('1' if allowed else '0')
+        except OSError as error:
+            log(f'{switch}: {error}')
 
 
 # A longer hold of Power is not a press: it is the start of a forced restart or DFU.
@@ -414,7 +429,6 @@ def as_user(user, *argv, timeout=5):
 class Daemon:
     def __init__(self):
         self.machine = Machine()
-        self.buttons = Buttons()
         self.cover = Cover()
         self.covers = {}
         self.events = queue.Queue()
@@ -428,8 +442,11 @@ class Daemon:
         self.saved = None
         self.counters = None
         self.sleep_started = None
+        self.buttons = Buttons()
         self.ticks = 0
         self.cancel = threading.Event()
+        self.dim_saved = None
+        self.dim_level = None
         self.dark = threading.Event()
         self.session_jobs = queue.Queue()
         self.inhibitor = None
@@ -557,13 +574,22 @@ class Daemon:
             getattr(self, 'do_' + action.replace('-', '_'))(before)
         self.dark.set() if self.machine.state in (SETTLING, DARK) else self.dark.clear()
 
+    def undim(self):
+        panel = self.backlight()
+        if self.dim_saved is not None and panel:
+            current = int((panel / 'brightness').read_text())
+            if self.machine.state == ON and current == self.dim_level:
+                (panel / 'brightness').write_text(f'{self.dim_saved}\n')
+        self.dim_saved = self.dim_level = None
+
     def do_dark(self, _):
         panel = self.backlight()
         if panel:
             current = int((panel / 'brightness').read_text())
             if current > 0 and self.fade is None:
-                self.saved = current
-                self.remember_brightness(current)
+                self.saved = self.dim_saved or current
+                self.remember_brightness(self.saved)
+            self.dim_saved = self.dim_level = None
             self.start_fade(panel, 0)
 
     def start_fade(self, panel, target):
@@ -722,7 +748,13 @@ class Daemon:
             try:
                 user = session_user()
                 if job == 'lock':
-                    self.post('lock-ok' if user is None or self.lock_session(user) else 'lock-failed')
+                    if user is not None:
+                        # The on-screen keyboard must not stay up over the lock screen.
+                        as_user(user, 'omarchy-keyboard', 'hide')
+                    locked = user is None or self.lock_session(user)
+                    if locked:
+                        usb_new_devices(False)
+                    self.post('lock-ok' if locked else 'lock-failed')
                 elif user is not None and job == 'woke':
                     as_user(user, 'omarchy-shell', '-q', 'lock', 'woke')
                 elif user is not None and job == 'screenshot':
@@ -779,8 +811,40 @@ class Daemon:
                     # woke the screen (dark in the grace before the lock) opens nothing.
                     answer = 'combo' if self.buttons.home_in_combo else 'wake' if self.buttons.home_woke else 'alone'
                     connection.sendall(answer.encode() + b'\n')
+                elif request == 'unlocked':
+                    # The lock screen let the user in: new USB devices work again.
+                    usb_new_devices(True)
+                    connection.sendall(b'ok\n')
                 elif request == 'status':
                     connection.sendall(self.machine.state.encode() + b'\n')
+                elif request.startswith('brightness '):
+                    parts = request.split()
+                    panel = self.backlight()
+                    reply = b'held\n'
+                    if (len(parts) == 4 and panel and parts[1] == panel.name and
+                            parts[2].isascii() and parts[2].isdigit() and
+                            parts[3].isascii() and parts[3].isdigit()):
+                        level, expected = int(parts[2]), int(parts[3])
+                        current = int((panel / 'brightness').read_text())
+                        maximum = int((panel / 'max_brightness').read_text())
+                        if self.machine.state == ON and self.fade is None and self.dim_saved is None and current > 0 and current == expected and 1 <= level <= maximum:
+                            (panel / 'brightness').write_text(f'{level}\n')
+                            reply = b'ok\n'
+                    connection.sendall(reply)
+                elif request == 'als-state':
+                    connection.sendall(b'lit\n' if self.machine.state == ON and self.fade is None and self.dim_saved is None else b'dark\n')
+                elif request == 'dim':
+                    panel = self.backlight()
+                    if self.machine.state == ON and self.dim_saved is None and panel:
+                        current = int((panel / 'brightness').read_text())
+                        level = max(1, int((panel / 'max_brightness').read_text()) // 10)
+                        if current > level:
+                            self.dim_saved, self.dim_level = current, level
+                            (panel / 'brightness').write_text(f'{level}\n')
+                    connection.sendall(b'ok\n')
+                elif request == 'undim':
+                    self.undim()
+                    connection.sendall(b'ok\n')
                 elif request in ('idle', 'wake', 'lock'):
                     self.feed(request)
                     connection.sendall(b'ok\n')
